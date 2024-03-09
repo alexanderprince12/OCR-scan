@@ -1,71 +1,74 @@
-import os
-
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from modules.transformation import TPS_SpatialTransformerNetwork
+from modules.feature_extraction import VGG_FeatureExtractor, RCNN_FeatureExtractor, ResNet_FeatureExtractor
+from modules.sequence_modeling import BidirectionalLSTM
+from modules.prediction import Attention
 
-#import backbones
-#import decoders
-from .. import backbones
-from .. import decoders
+class Model(nn.Module):
 
+    def __init__(self, opt):
+        super(Model, self).__init__()
+        self.opt = opt
+        self.stages = {'Trans': opt.Transformation, 'Feat': opt.FeatureExtraction,
+                       'Seq': opt.SequenceModeling, 'Pred': opt.Prediction}
 
-class BasicModel(nn.Module):
-    def __init__(self, args):
-        nn.Module.__init__(self)
-
-        self.backbone = getattr(backbones, args['backbone'])(**args.get('backbone_args', {}))
-        self.decoder = getattr(decoders, args['decoder'])(**args.get('decoder_args', {}))
-
-    def forward(self, data, *args, **kwargs):
-        return self.decoder(self.backbone(data), *args, **kwargs)
-
-
-def parallelize(model, distributed, local_rank):
-    if distributed:
-        return nn.parallel.DistributedDataParallel(
-            model,
-            device_ids=[local_rank],
-            output_device=[local_rank],
-            find_unused_parameters=True)
-    else:
-        return nn.DataParallel(model)
-
-class SegDetectorModel(nn.Module):
-    def __init__(self, args, device, distributed: bool = False, local_rank: int = 0):
-        super(SegDetectorModel, self).__init__()
-        #from decoders.seg_detector_loss import SegDetectorLossBuilder
-        from ..decoders.seg_detector_loss import SegDetectorLossBuilder
-
-        self.model = BasicModel(args)
-        # for loading models
-        self.model = parallelize(self.model, distributed, local_rank)
-        self.criterion = SegDetectorLossBuilder(
-            args['loss_class'], *args.get('loss_args', []), **args.get('loss_kwargs', {})).build()
-        self.criterion = parallelize(self.criterion, distributed, local_rank)
-        self.device = device
-        self.to(self.device)
-
-    @staticmethod
-    def model_name(args):
-        return os.path.join('seg_detector', args['backbone'], args['loss_class'])
-
-    def forward(self, batch, training=True):
-        if isinstance(batch, dict):
-            data = batch['image'].to(self.device)
+        """ Transformation """
+        if opt.Transformation == 'TPS':
+            self.Transformation = TPS_SpatialTransformerNetwork(
+                F=opt.num_fiducial, I_size=(opt.imgH, opt.imgW), I_r_size=(opt.imgH, opt.imgW), I_channel_num=opt.input_channel)
         else:
-            data = batch.to(self.device)
-        data = data.float()
-        #pred = self.model(data, training=self.training)
-        pred = self.model(data, training=training)
+            print('No Transformation module specified')
 
-        #if self.training:
-        if training:
-            for key, value in batch.items():
-                if value is not None:
-                    if hasattr(value, 'to'):
-                        batch[key] = value.to(self.device)
-            loss_with_metrics = self.criterion(pred, batch)
-            loss, metrics = loss_with_metrics
-            return loss, pred, metrics
-        return pred
+        """ FeatureExtraction """
+        if opt.FeatureExtraction == 'VGG':
+            self.FeatureExtraction = VGG_FeatureExtractor(opt.input_channel, opt.output_channel)
+        elif opt.FeatureExtraction == 'RCNN':
+            self.FeatureExtraction = RCNN_FeatureExtractor(opt.input_channel, opt.output_channel)
+        elif opt.FeatureExtraction == 'ResNet':
+            self.FeatureExtraction = ResNet_FeatureExtractor(opt.input_channel, opt.output_channel)
+        else:
+            raise Exception('No FeatureExtraction module specified')
+        self.FeatureExtraction_output = opt.output_channel  # int(imgH/16-1) * 512
+        self.AdaptiveAvgPool = nn.AdaptiveAvgPool2d((None, 1))  # Transform final (imgH/16-1) -> 1
+
+        """ Sequence modeling"""
+        if opt.SequenceModeling == 'BiLSTM':
+            self.SequenceModeling = nn.Sequential(
+                BidirectionalLSTM(self.FeatureExtraction_output, opt.hidden_size, opt.hidden_size),
+                BidirectionalLSTM(opt.hidden_size, opt.hidden_size, opt.hidden_size))
+            self.SequenceModeling_output = opt.hidden_size
+        else:
+            print('No SequenceModeling module specified')
+            self.SequenceModeling_output = self.FeatureExtraction_output
+
+        """ Prediction """
+        if opt.Prediction == 'CTC':
+            self.Prediction = nn.Linear(self.SequenceModeling_output, opt.num_class)
+        elif opt.Prediction == 'Attn':
+            self.Prediction = Attention(self.SequenceModeling_output, opt.hidden_size, opt.num_class)
+        else:
+            raise Exception('Prediction is neither CTC or Attn')
+
+    def forward(self, input, text, is_train=True):
+        """ Transformation stage """
+        if not self.stages['Trans'] == "None":
+            input = self.Transformation(input)
+
+        """ Feature extraction stage """
+        visual_feature = self.FeatureExtraction(input)
+        visual_feature = self.AdaptiveAvgPool(visual_feature.permute(0, 3, 1, 2))  # [b, c, h, w] -> [b, w, c, h]
+        visual_feature = visual_feature.squeeze(3)
+
+        """ Sequence modeling stage """
+        if self.stages['Seq'] == 'BiLSTM':
+            contextual_feature = self.SequenceModeling(visual_feature)
+        else:
+            contextual_feature = visual_feature  # for convenience. this is NOT contextually modeled by BiLSTM
+
+        """ Prediction stage """
+        if self.stages['Pred'] == 'CTC':
+            prediction = self.Prediction(contextual_feature.contiguous())
+        else:
+            prediction = self.Prediction(contextual_feature.contiguous(), text, is_train, batch_max_length=self.opt.batch_max_length)
+
+        return prediction
