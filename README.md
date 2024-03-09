@@ -1,192 +1,172 @@
-# EasyOCR
+# DBNet - Inference Only
+This text detection module is adapted from [DBNet++](https://github.com/MhLiao/DB).
 
-[![PyPI Status](https://badge.fury.io/py/easyocr.svg)](https://badge.fury.io/py/easyocr)
-[![license](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/JaidedAI/EasyOCR/blob/master/LICENSE)
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.to/easyocr)
-[![Tweet](https://img.shields.io/twitter/url/https/github.com/JaidedAI/EasyOCR.svg?style=social)](https://twitter.com/intent/tweet?text=Check%20out%20this%20awesome%20library:%20EasyOCR%20https://github.com/JaidedAI/EasyOCR)
-[![Twitter](https://img.shields.io/badge/twitter-@JaidedAI-blue.svg?style=flat)](https://twitter.com/JaidedAI)
+## 1. Overview
+DBNet works as an image segmentation which performs classification at pixel-level. The model classifies if each pixel from the input image is a part of a text region. This module uses dynamic import and class construction from a config file. Config files are expected to be found in `./configs/`. At the input, the input image is expected to have width and height as multiple of 32. Input images that does not have these dimension will be resized accordingly. In addition, minimum and maximum sizes can be specified in the config file.
 
-Ready-to-use OCR with 80+ [supported languages](https://www.jaided.ai/easyocr) and all popular writing scripts including: Latin, Chinese, Arabic, Devanagari, Cyrillic, etc.
+### 1.1) Terminology
+  * Probability Heatmap: A tensor represents classification confidence of each pixel for being a part of a text region.
+  * Segmentation: A boolean-like tensor represents region that is determined as being a text region.
+  * text_threshold: A threshold for each element of the probability heatmap to be considered as a text region.
+  * detection_size: This term is used to refer to the size of the image on which the detection routine will be performed. Input images that are not of this size will be resized accordingly.
 
-[Try Demo on our website](https://www.jaided.ai/easyocr)
+### 1.2) Changes from the original repo
+  1. Scripts inside `./concerns/` and multiple `.yaml` files are consolidated and pruned for inference-only implementation and dependencies reduction.
+  2. DCN operators, which are required to be compiled with Ahead-of-Time (AoT) in the original repo, are changed to compile with Just-in-Time (JIT) approach as the default. AoT approach is still support.
+  3. DCN CPU version is provided in addition to the CUDA version from the original repo.
+  4. Pretrained weights are renamed for easy referring and adding file extension.
+   
+  | Original name                                       | New name                  |
+  |-----------------------------------------------------|---------------------------|
+  |synthtext_finetune_ic15_res18_dcn_fpn_dbv2           |pretrained_ic15_resnet18.pt|
+  |synthtext_finetune_ic15_res50_dcn_fpn_dbv2_thresh0.25|pretrained_ic15_resnet50.pt|
+  
 
-Integrated into [Huggingface Spaces 🤗](https://huggingface.co/spaces) using [Gradio](https://github.com/gradio-app/gradio). Try out the Web Demo: [![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/tomofi/EasyOCR)
+## 2. Using and Compiling DCN operators
+DBNet requires DCN operators to be compiled. There are two versions of DCN provided; CPU version and CUDA version (original). CUDA version works significantly faster, but requires CUDA-support GPU and CUDA developer toolkit. The CPU version can work without GPU and CUDA. The compilation prerequisites and instruction can be found below.
 
+Please not that, EasyOCR **can work** without DBNet and DCN operators by using CRAFT text detection (the default detector module).
 
-## What's new
-- 4 September 2023 - Version 1.7.1
-    - Fix several compatibilities
-- 25 May 2023 - Version 1.7.0
-    - Add Apple Silicon support (thanks[@rayeesoft](https://github.com/rayeesoft) and [@ArtemBernatskyy](https://github.com/ArtemBernatskyy), see [PR](https://github.com/JaidedAI/EasyOCR/pull/1004))
-    - Fix several compatibilities
-- 15 September 2022 - Version 1.6.2
-    - Add CPU support for DBnet
-    - DBnet will only be compiled when users initialize DBnet detector.  
-- 1 September 2022 - Version 1.6.1
-    - Fix DBnet path bug for Windows
-    - Add new built-in model `cyrillic_g2`. This model is a new default for Cyrillic script.
-- 24 August 2022 - Version 1.6.0
-    - Restructure code to support alternative text detectors.
-    - Add detector `DBnet`, see [paper](https://arxiv.org/abs/2202.10304v1). It can be used by initializing like this `reader = easyocr.Reader(['en'], detect_network = 'dbnet18')`.
-- 2 June 2022 - Version 1.5.0
-    - Add trainer for CRAFT detection model (thanks[@gmuffiness](https://github.com/gmuffiness), see [PR](https://github.com/JaidedAI/EasyOCR/pull/739))
+### 2.1) Prerequisites
+##### CPU version
+ * GCC compiler > 4.9
 
-- [Read all release notes](https://github.com/JaidedAI/EasyOCR/blob/master/releasenotes.md)
+##### CUDA version
+ * GCC compiler > 4.9
+ * [CUDA Developer Toolkits](https://developer.nvidia.com/cuda-toolkit) > 9.0 (Tested on 11.3). 
 
-## What's coming next
-- Handwritten text support
+### 2.2) Installing Dependencies
 
-## Examples
+Some step-by-step procedure to install the prerequisites is listed below. Please note that there are other methods that work as well. These methods are listed only to serve as a guideline.
 
-![example](examples/example.png)
+#### Installing GCC Compiler
+*Step 1*: Check if your machine already has GCC installed.
 
-![example2](examples/example2.png)
+On command line terminal (Linux/Mac/Windows);
+```
+> gcc --version
+```
+If you already have GCC installed, it will report the version of GCC on your machine. If the command gives an error message along the line of command not found, it implies you do not have GCC installed. 
 
-![example3](examples/example3.png)
+*Step 2*: Install GCC.
 
+To install GCC, you can do one of the following commands, depending on the privileges of your user account on your machine (Linux/Debian/Ubuntu)
+```
+> apt-get install build-essential
+```
+or
+```
+> sudo apt-get install build-essential
+```
+For Mac and Windows users, please follow the respective official instructions.
 
-## Installation
+*Step 3*: Verification
+Repeat Step 1 to make sure that you now have GCC installed.
 
-Install using `pip`
+#### Installing CUDA and NVCC Compiler
+*Step 1*: Check if your machine already has NVCC and CUDA toolkit installed.
+On command line terminal (Linux/Mac/Windows);
+```
+> nvcc --version
+```
+If you already have NVCC installed, it will report the NVCC version on your machine. If the command gives an error message along the line of command not found, it implies you do not have NVCC installed.
 
-For the latest stable release:
+*Step 2*: Install NVCC and CUDA developer toolkit.
 
-``` bash
-pip install easyocr
+Option 1: The official instruction can be found [here](https://developer.nvidia.com/cuda-downloads).
+
+Option 2:
+Alternatively, you can try install NVCC with [conda](https://docs.conda.io/projects/conda/en/latest/index.html) (package management system and environment management system).
+
+To use conda to install NVCC, you can do;
+*Linux/Mac/Windows*
+```
+> conda install -c conda-forge cudatoolkit-dev 
+```
+Note that the above command may fail if your machine is missing some library, such as libxml2. If such error occurs, please install the missing libraries and try again.
+
+*Step 3*: Verification
+Repeat Step 1 to make sure that you now have NVCC installed.
+
+#### Installing conda
+Step 1: Check if your machine already has conda installed.
+On command line terminal, (Linux/Mac/Windows)
+```
+> conda --version
+```
+If you already have conda installed, it will report the version of conda on your machine. If the command gives an error message along the line of command not found, it implies you do not have conda installed.
+
+Step 2: Install conda
+Please follow the [official instruction](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) to install it according to your OS.
+
+Step 3: Verification
+Repeat Step 1 to make sure that you now have conda installed.
+
+#### Using Docker image
+For Docker users, please use development level images. For example, pytorch/pytorch:x.xx.x-cudax.x-cudnnx-devel. You can verify if all prerequisites are provided by the image by checking
+```
+gcc --version
+```
+and
+```
+nvcc --version
 ```
 
-For the latest development release:
+If you already have GCC/NVCC installed, each command will report the version of GCC/NVCC on your machine. If the command gives an error message along the line of command not found, it implies you do not have GCC/NVCC installed. 
 
-``` bash
-pip install git+https://github.com/JaidedAI/EasyOCR.git
+### 2.3 Compiling DCN Just-in-Time (JiT)
+Once all of the prerequisites have been installed, you can start using `dbnet18` as the detect_network for EasyOCR. The module will compile the source codes automatically when needed. The compilation may take a while if the modules are being loaded and compiled for the first time.
+
+### 2.4 Compiling DCN Ahead-of-Time (AoT)
+You can also try compiling DCN with Ahead-of-Time approach. The following procedure may serve as a guideline.
+
+#### 2.4.1 Locate EasyOCR and DBNet module inside it
+Start python console environment of your choice, such as Jupyter notebook and Spyder IDE. You can also start one from command line interface (Linux/Mac terminal, etc.) by calling `python` or `python3`;
+
+In python console environment;
+```
+> import os
+> import easyocr
+> print(os.dirname(easyocr.__file__))
+```
+This should show the installation location of easyocr on your machine.
+
+The exact output of the above command depends on many factors and will be likely unique for each user, especially the `username`. As an example, let's assuming the command above returns something like;
+```
+> /home/username/anaconda3/lib/python3.8/site-packages/easyocr
 ```
 
-Note 1: For Windows, please install torch and torchvision first by following the official instructions here https://pytorch.org. On the pytorch website, be sure to select the right CUDA version you have. If you intend to run on CPU mode only, select `CUDA = None`.
-
-Note 2: We also provide a Dockerfile [here](https://github.com/JaidedAI/EasyOCR/blob/master/Dockerfile).
-
-## Usage
-
-``` python
-import easyocr
-reader = easyocr.Reader(['ch_sim','en']) # this needs to run only once to load the model into memory
-result = reader.readtext('chinese.jpg')
+We want to go into the directory where `DBNet` and the DCN source files are located within EasyOCR which can be done by appending `DBNet/assets/ops/dcn` to the path obtained above. For example;
+```
+/home/username/anaconda3/lib/python3.8/site-packages/easyocr/DBNet/assets/ops/dcn
+```
+Access the above directory with any File Manager app on your machine of your choice, for example, Explorer (Windows), Nautilus (Linux/GNOME), Finder (MAC). Or use the following command in the command line interface;
+```
+> cd /home/username/anaconda3/lib/python3.8/site-packages/easyocr/DBNet/assets/ops/dcn
 ```
 
-The output will be in a list format, each item represents a bounding box, the text detected and confident level, respectively.
+#### 2.4.2 Compiling DCN operator manually with setup.py script
 
-``` bash
-[([[189, 75], [469, 75], [469, 165], [189, 165]], '愚园路', 0.3754989504814148),
- ([[86, 80], [134, 80], [134, 128], [86, 128]], '西', 0.40452659130096436),
- ([[517, 81], [565, 81], [565, 123], [517, 123]], '东', 0.9989598989486694),
- ([[78, 126], [136, 126], [136, 156], [78, 156]], '315', 0.8125889301300049),
- ([[514, 126], [574, 126], [574, 156], [514, 156]], '309', 0.4971577227115631),
- ([[226, 170], [414, 170], [414, 220], [226, 220]], 'Yuyuan Rd.', 0.8261902332305908),
- ([[79, 173], [125, 173], [125, 213], [79, 213]], 'W', 0.9848111271858215),
- ([[529, 173], [569, 173], [569, 213], [529, 213]], 'E', 0.8405593633651733)]
+First go to DCN operator subdirectory inside DBNet module inside EasyOCR directory (e.g. `/home/username/anaconda3/lib/python3.8/site-packages/easyocr/DBNet/assets/ops/dcn`) by;
+
+Verify that a script `setup.py` is found in that directory. (This version of `setup.py` script is different from the original version from [DBNet++](https://github.com/MhLiao/DB) since the support for CPU has been added.) Once the script is located, run the following command;
 ```
-Note 1: `['ch_sim','en']` is the list of languages you want to read. You can pass
-several languages at once but not all languages can be used together.
-English is compatible with every language and languages that share common characters are usually compatible with each other.
-
-Note 2: Instead of the filepath `chinese.jpg`, you can also pass an OpenCV image object (numpy array) or an image file as bytes. A URL to a raw image is also acceptable.
-
-Note 3: The line `reader = easyocr.Reader(['ch_sim','en'])` is for loading a model into memory. It takes some time but it needs to be run only once.
-
-You can also set `detail=0` for simpler output.
-
-``` python
-reader.readtext('chinese.jpg', detail = 0)
+> python setup.py build_ext --inplace
 ```
-Result:
-``` bash
-['愚园路', '西', '东', '315', '309', 'Yuyuan Rd.', 'W', 'E']
+This will start the compilation process and you can monitor the progress, including error messages, if any, on the command line interface. If there is any error, please resolve them, and try again. Once the compilation has been completed, new files will be added to the current directory (i.e. `/home/username/anaconda3/lib/python3.8/site-packages/easyocr/DBNet/assets/ops/dcn`). If your machine has only CPU, but no CUDA device (GPU), two files will be added to the directory. **Please note that the exact names of the files will be different depending on the configuration of your machine.** The file names should look like;
+```
+deform_conv_cpu.******.so
+deform_pool_cpu.******.so
+```
+If your machine also has CUDA device, two additional files will be added (4 files in total). The file names of these files should look like;
+```
+deform_conv_cuda.******.so
+deform_pool_cuda.******.so
 ```
 
-Model weights for the chosen language will be automatically downloaded or you can
-download them manually from the [model hub](https://www.jaided.ai/easyocr/modelhub) and put them in the '~/.EasyOCR/model' folder
+### 3. Using DBNet Detector
+When initializing EasyOCR with DBNet as the detect network for the first time in the current working session, messages will be print to indicate if the DCN operators are loaded from objects compiled with AoT approach (pre-compiled) or the source codes are compiling with JiT approach. 
 
-In case you do not have a GPU, or your GPU has low memory, you can run the model in CPU-only mode by adding `gpu=False`.
 
-``` python
-reader = easyocr.Reader(['ch_sim','en'], gpu=False)
-```
 
-For more information, read the [tutorial](https://www.jaided.ai/easyocr/tutorial) and [API Documentation](https://www.jaided.ai/easyocr/documentation).
 
-#### Run on command line
-
-```shell
-$ easyocr -l ch_sim en -f chinese.jpg --detail=1 --gpu=True
-```
-
-## Train/use your own model
-
-For recognition model, [Read here](https://github.com/JaidedAI/EasyOCR/blob/master/custom_model.md).
-
-For detection model (CRAFT), [Read here](https://github.com/JaidedAI/EasyOCR/blob/master/trainer/craft/README.md).
-
-## Implementation Roadmap
-
-- Handwritten support
-- Restructure code to support swappable detection and recognition algorithms
-The api should be as easy as
-``` python
-reader = easyocr.Reader(['en'], detection='DB', recognition = 'Transformer')
-```
-The idea is to be able to plug in any state-of-the-art model into EasyOCR. There are a lot of geniuses trying to make better detection/recognition models, but we are not trying to be geniuses here. We just want to make their works quickly accessible to the public ... for free. (well, we believe most geniuses want their work to create a positive impact as fast/big as possible) The pipeline should be something like the below diagram. Grey slots are placeholders for changeable light blue modules.
-
-![plan](examples/easyocr_framework.jpeg)
-
-## Acknowledgement and References
-
-This project is based on research and code from several papers and open-source repositories.
-
-All deep learning execution is based on [Pytorch](https://pytorch.org). :heart:
-
-Detection execution uses the CRAFT algorithm from this [official repository](https://github.com/clovaai/CRAFT-pytorch) and their [paper](https://arxiv.org/abs/1904.01941) (Thanks @YoungminBaek from [@clovaai](https://github.com/clovaai)). We also use their pretrained model. Training script is provided by [@gmuffiness](https://github.com/gmuffiness).
-
-The recognition model is a CRNN ([paper](https://arxiv.org/abs/1507.05717)). It is composed of 3 main components: feature extraction (we are currently using [Resnet](https://arxiv.org/abs/1512.03385)) and VGG, sequence labeling ([LSTM](https://www.bioinf.jku.at/publications/older/2604.pdf)) and decoding ([CTC](https://www.cs.toronto.edu/~graves/icml_2006.pdf)). The training pipeline for recognition execution is a modified version of the [deep-text-recognition-benchmark](https://github.com/clovaai/deep-text-recognition-benchmark) framework. (Thanks [@ku21fan](https://github.com/ku21fan) from [@clovaai](https://github.com/clovaai)) This repository is a gem that deserves more recognition.
-
-Beam search code is based on this [repository](https://github.com/githubharald/CTCDecoder) and his [blog](https://towardsdatascience.com/beam-search-decoding-in-ctc-trained-neural-networks-5a889a3d85a7). (Thanks [@githubharald](https://github.com/githubharald))
-
-Data synthesis is based on [TextRecognitionDataGenerator](https://github.com/Belval/TextRecognitionDataGenerator). (Thanks [@Belval](https://github.com/Belval))
-
-And a good read about CTC from distill.pub [here](https://distill.pub/2017/ctc/).
-
-## Want To Contribute?
-
-Let's advance humanity together by making AI available to everyone!
-
-3 ways to contribute:
-
-**Coder:** Please send a PR for small bugs/improvements. For bigger ones, discuss with us by opening an issue first. There is a list of possible bug/improvement issues tagged with ['PR WELCOME'](https://github.com/JaidedAI/EasyOCR/issues?q=is%3Aissue+is%3Aopen+label%3A%22PR+WELCOME%22).
-
-**User:** Tell us how EasyOCR benefits you/your organization to encourage further development. Also post failure cases in [Issue  Section](https://github.com/JaidedAI/EasyOCR/issues) to help improve future models.
-
-**Tech leader/Guru:** If you found this library useful, please spread the word! (See [Yann Lecun's post](https://www.facebook.com/yann.lecun/posts/10157018122787143) about EasyOCR)
-
-## Guideline for new language request
-
-To request a new language, we need you to send a PR with the 2 following files:
-
-1. In folder [easyocr/character](https://github.com/JaidedAI/EasyOCR/tree/master/easyocr/character),
-we need 'yourlanguagecode_char.txt' that contains list of all characters. Please see format examples from other files in that folder.
-2. In folder [easyocr/dict](https://github.com/JaidedAI/EasyOCR/tree/master/easyocr/dict),
-we need 'yourlanguagecode.txt' that contains list of words in your language.
-On average, we have ~30000 words per language with more than 50000 words for more popular ones.
-More is better in this file.
-
-If your language has unique elements (such as 1. Arabic: characters change form when attached to each other + write from right to left 2. Thai: Some characters need to be above the line and some below), please educate us to the best of your ability and/or give useful links. It is important to take care of the detail to achieve a system that really works.
-
-Lastly, please understand that our priority will have to go to popular languages or sets of languages that share large portions of their characters with each other (also tell us if this is the case for your language). It takes us at least a week to develop a new model, so you may have to wait a while for the new model to be released.
-
-See [List of languages in development](https://github.com/JaidedAI/EasyOCR/issues/91)
-
-## Github Issues
-
-Due to limited resources, an issue older than 6 months will be automatically closed. Please open an issue again if it is critical.
-
-## Business Inquiries
-
-For Enterprise Support, [Jaided AI](https://www.jaided.ai/) offers full service for custom OCR/AI systems from implementation, training/finetuning and deployment. Click [here](https://www.jaided.ai/contactus?ref=github) to contact us.
